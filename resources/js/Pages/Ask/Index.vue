@@ -68,6 +68,8 @@ const selectConversation = async (conversation) => {
         currentConversationId.value = conversation.id;
         selectedConversation.value = conversation;
 
+        setupChatSubscription(conversation.id);
+
         // Mettre à jour le modèle sélectionné avec celui de la conversation
         if (conversation.model) {
             form.model = conversation.model;
@@ -150,6 +152,8 @@ const sendMessage = async () => {
     )
         return;
 
+    console.log("Envoi du message:", form.message);
+
     const tempMessage = form.message.trim();
     try {
         loading.value = true;
@@ -159,50 +163,54 @@ const sendMessage = async () => {
         messages.value.push({
             role: "assistant",
             content: "L'IA réfléchit...",
+            isLoading: true,
         });
         await scrollToBottom();
 
         const processedMessage = await processMessage(tempMessage);
 
-        const response = await axios.post(
-            route("messages.store", selectedConversation.value.id),
+        console.log("Message traité:", processedMessage);
+
+        await axios.post(
+            route("messages.stream", selectedConversation.value.id),
             {
                 message: processedMessage,
                 model: form.model,
             }
         );
 
-        if (response.data.messages) {
-            messages.value = response.data.messages;
-        }
+        // if (response.data.messages) {
+        //     messages.value = response.data.messages;
+        // }
 
-        // Mise à jour de la conversation (avec le titre généré) dans la liste et la sélection
-        if (response.data.conversation) {
-            const updatedConversation = response.data.conversation;
-            const index = conversations.value.findIndex(
-                (c) => c.id === updatedConversation.id
-            );
-            if (index !== -1) {
-                conversations.value[index] = updatedConversation;
-            }
-            if (selectedConversation.value?.id === updatedConversation.id) {
-                selectedConversation.value = updatedConversation;
-            }
-            // Optionnel : réordonner les conversations par date d'activité
-            conversations.value.sort(
-                (a, b) => new Date(b.last_activity) - new Date(a.last_activity)
-            );
-        }
+        // // Mise à jour de la conversation (avec le titre généré) dans la liste et la sélection
+        // if (response.data.conversation) {
+        //     const updatedConversation = response.data.conversation;
+        //     const index = conversations.value.findIndex(
+        //         (c) => c.id === updatedConversation.id
+        //     );
+        //     if (index !== -1) {
+        //         conversations.value[index] = updatedConversation;
+        //     }
+        //     if (selectedConversation.value?.id === updatedConversation.id) {
+        //         selectedConversation.value = updatedConversation;
+        //     }
+        //     // Optionnel : réordonner les conversations par date d'activité
+        //     conversations.value.sort(
+        //         (a, b) => new Date(b.last_activity) - new Date(a.last_activity)
+        //     );
+        // }
 
-        // Mise à jour de toute la liste des conversations
-        if (response.data.conversations) {
-            conversations.value = response.data.conversations;
-        }
+        // // Mise à jour de toute la liste des conversations
+        // if (response.data.conversations) {
+        //     conversations.value = response.data.conversations;
+        // }
 
         form.reset("message");
         await scrollToBottom();
     } catch (error) {
         // ...gestion d'erreur existante...
+        console.error("Erreur lors de l'envoi du message:", error);
         messages.value = messages.value.filter(
             (msg) =>
                 msg.content !== "L'IA réfléchit..." &&
@@ -266,13 +274,13 @@ const saveInstructions = async () => {
 };
 
 // Observers
-watch(
-    messages,
-    () => {
-        scrollToBottom();
-    },
-    { deep: true }
-);
+// watch(
+//     messages,
+//     () => {
+//         scrollToBottom();
+//     },
+//     { deep: true }
+// );
 
 watch(selectedModel, (newModel) => {
     if (newModel) {
@@ -360,83 +368,99 @@ const processMessage = async (message) => {
 };
 
 // Charger les commandes au montage du composant
-onMounted(() => {
-    loadCommands();
-});
+// onMounted(() => {
+//     loadCommands();
+// });
 
 // Ajout de la souscription pour le streaming
-onMounted(() => {
-    if (page.props.conversation && page.props.conversation.id) {
-        const channel = `chat.${page.props.conversation.id}`;
-        console.log("🔌 Tentative de connexion au canal:", channel);
+// onMounted(() => {
+//     console.log(currentConversationId.value);
+//     if (page.props.conversation && page.props.conversation.id) {
+//         const channel = `chat.${page.props.conversation.id}`;
+//         console.log("🔌 Tentative de connexion au canal:", channel);
 
-        const subscription = window.Echo.private(channel)
-            .subscribed(() => {
-                console.log("✅ Connecté avec succès au canal:", channel);
-            })
-            .error((error) => {
-                console.error("❌ Erreur de connexion au canal:", error);
-            })
-            .listen(".message.streamed", (event) => {
-                console.log("📨 Message reçu:", event);
+//         const subscription = window.Echo.private(channel)
+//             .subscribed(() => {
+//                 console.log("✅ Connecté avec succès au canal:", channel);
+//             })
+//             .error((error) => {
+//                 console.error("❌ Erreur de connexion au canal:", error);
+//             })
+//             .listen(".message.streamed", (event) => {
+//                 console.log("📨 Message reçu:", event);
 
-                const lastMessage =
-                    localMessages.value[localMessages.value.length - 1];
+//                 const lastMessage =
+//                     localMessages.value[localMessages.value.length - 1];
 
-                // Vérifier qu'on ait bien un message assistant en cours
-                if (!lastMessage || lastMessage.role !== "assistant") {
-                    console.log(
-                        "⚠️ Aucun message assistant ciblé pour concaténer"
-                    );
-                    return;
-                }
+//                 // Vérifier qu'on ait bien un message assistant en cours
+//                 if (!lastMessage || lastMessage.role !== "assistant") {
+//                     console.log(
+//                         "⚠️ Aucun message assistant ciblé pour concaténer"
+//                     );
+//                     return;
+//                 }
 
-                // Gestion d'erreur éventuelle
-                if (event.error) {
-                    console.error("❌ Erreur reçue:", event.error);
-                    localMessages.value.pop();
-                    usePage().props.flash.error = event.content;
-                    return;
-                }
+//                 // Gestion d'erreur éventuelle
+//                 if (event.error) {
+//                     console.error("❌ Erreur reçue:", event.error);
+//                     localMessages.value.pop();
+//                     usePage().props.flash.error = event.content;
+//                     return;
+//                 }
 
-                // Dès qu’on reçoit le premier chunk, on peut désactiver un éventuel spinner
-                if (lastMessage.isLoading && event.content) {
-                    console.log("🔄 Premier chunk reçu, on enlève le loading");
-                    lastMessage.isLoading = false;
-                }
+//                 // Dès qu’on reçoit le premier chunk, on peut désactiver un éventuel spinner
+//                 if (lastMessage.isLoading && event.content) {
+//                     console.log("🔄 Premier chunk reçu, on enlève le loading");
+//                     lastMessage.isLoading = false;
+//                 }
 
-                // Ajouter le chunk reçu
-                if (!event.isComplete) {
-                    lastMessage.content += event.content;
-                    nextTick(() => {
-                        // ...fonction scrollToBottom existante...
-                    });
-                }
+//                 // Ajouter le chunk reçu
+//                 if (!event.isComplete) {
+//                     lastMessage.content += event.content;
+//                     nextTick(() => {
+//                         // ...fonction scrollToBottom existante...
+//                     });
+//                 }
 
-                // Si c’est la fin, déclencher des actions (comme l’update du titre)
-                if (event.isComplete) {
-                    console.log("✅ Message complet reçu");
-                    if (localMessages.value.length === 2) {
-                        sidebarRef.value?.updateTitle(
-                            page.props.conversation.id
-                        );
-                    }
-                }
-            });
+//                 // Si c’est la fin, déclencher des actions (comme l’update du titre)
+//                 if (event.isComplete) {
+//                     console.log("✅ Message complet reçu");
+//                     if (localMessages.value.length === 2) {
+//                         sidebarRef.value?.updateTitle(
+//                             page.props.conversation.id
+//                         );
+//                     }
+//                 }
+//             });
 
-        channelSubscription.value = subscription;
-    }
-});
+//         channelSubscription.value = subscription;
+//     }
+// });
 
 import Pusher from "pusher-js";
 
 window.Pusher = Pusher;
 
-const conversationId = 1;
+// const conversationId = 1;
+const currentChannel = ref(null);
 
-onMounted(() => {
+const setupChatSubscription = (conversationId) => {
+    if (!conversationId) return;
+
     const channelName = `chat.${conversationId}`;
     console.log("Tentative d'abonnement au canal :", channelName);
+
+    // Leave previous channel if it exists
+    if (currentChannel.value) {
+        console.log(
+            "👋 Désinscription du canal précédent:",
+            currentChannel.value
+        );
+        window.Echo.leave(currentChannel.value);
+    }
+
+    // Update current channel
+    currentChannel.value = channelName;
 
     window.Echo.private(channelName)
         .subscribed(() => {
@@ -449,24 +473,75 @@ onMounted(() => {
                 error
             );
         })
-        .listen(".message.streamed", (data) => {
-            console.log("Message streamé reçu:", data);
-            messages.value.push(data);
+        .listen(".message.streamed", (event) => {
+            const lastMessage = messages.value[messages.value.length - 1];
+            console.log("Dernier message:", lastMessage);
+            // Vérifier qu'on ait bien un message assistant en cours
+            if (!lastMessage || lastMessage.role !== "assistant") {
+                console.log("⚠️ Aucun message assistant ciblé pour concaténer");
+                return;
+            }
+
+            // Gestion d'erreur éventuelle
+            if (event.error) {
+                console.error(
+                    "❌ Erreur reçue (Seb va pas être content xD):",
+                    event.error
+                );
+                messages.value.pop();
+                usePage().props.flash.error = event.content;
+                return;
+            }
+
+            // Dès qu’on reçoit le premier chunk, on peut désactiver un éventuel spinner
+            if (lastMessage.isLoading && event.content) {
+                console.log("🔄 Premier chunk reçu, on enlève le loading");
+                lastMessage.isLoading = false;
+                lastMessage.content = "";
+            }
+
+            // Ajouter le chunk reçu
+            if (!event.isComplete) {
+                lastMessage.content += event.content;
+                nextTick(() => {
+                    scrollToBottom();
+                    // ...fonction scrollToBottom existante...
+                });
+            }
+
+            // Si c’est la fin, déclencher des actions (comme l’update du titre)
+            if (event.isComplete) {
+                console.log("✅ Message complet reçu");
+                // if (localMessages.value.length === 2) {
+                //     sidebarRef.value?.updateTitle(page.props.conversation.id);
+                // }
+            }
         });
+};
+
+onMounted(() => {
+    // Load initial conversation if available
+    if (page.props.conversation?.id) {
+        currentConversationId.value = page.props.conversation.id;
+        setupChatSubscription(currentConversationId.value);
+    }
+
+    // Load commands
+    loadCommands();
 });
 </script>
 
 <template>
-    <div class="h-screen w-screen flex bg-gray-900 text-white">
+    <div class="flex w-screen h-screen text-white bg-gray-900">
         <!-- Sidebar avec scroll -->
         <aside
-            class="w-1/4 bg-gray-800 p-4 flex flex-col border-r border-gray-700"
+            class="flex flex-col w-1/4 p-4 bg-gray-800 border-r border-gray-700"
         >
-            <h2 class="text-xl font-bold mb-4">Conversations</h2>
+            <h2 class="mb-4 text-xl font-bold">Conversations</h2>
 
             <button
                 @click="createConversation"
-                class="p-2 mb-4 bg-blue-500 text-white rounded hover:bg-blue-600 transition flex items-center justify-center"
+                class="flex items-center justify-center p-2 mb-4 text-white transition bg-blue-500 rounded hover:bg-blue-600"
                 :disabled="loading"
             >
                 <span v-if="!loading">+ Nouvelle conversation</span>
@@ -474,12 +549,12 @@ onMounted(() => {
             </button>
 
             <!-- Conteneur avec scroll pour la liste des conversations -->
-            <div class="flex-1 overflow-y-auto min-h-0">
+            <div class="flex-1 min-h-0 overflow-y-auto">
                 <div v-if="conversations?.length" class="space-y-2">
                     <div
                         v-for="conversation in conversations"
                         :key="conversation?.id"
-                        class="cursor-pointer p-3 rounded-lg transition-colors duration-200"
+                        class="p-3 transition-colors duration-200 rounded-lg cursor-pointer"
                         :class="{
                             'bg-gray-700':
                                 selectedConversation?.id === conversation?.id,
@@ -488,7 +563,7 @@ onMounted(() => {
                         }"
                     >
                         <div
-                            class="flex justify-between items-center"
+                            class="flex items-center justify-between"
                             @click="selectConversation(conversation)"
                         >
                             <div v-if="editingTitle === conversation?.id">
@@ -500,7 +575,7 @@ onMounted(() => {
                                     @keyup.enter="
                                         updateConversationTitle(conversation)
                                     "
-                                    class="bg-gray-600 text-white px-2 py-1 rounded w-full"
+                                    class="w-full px-2 py-1 text-white bg-gray-600 rounded"
                                     ref="titleInput"
                                 />
                             </div>
@@ -528,7 +603,7 @@ onMounted(() => {
                         </div>
                     </div>
                 </div>
-                <div v-else class="text-gray-400 text-center py-4">
+                <div v-else class="py-4 text-center text-gray-400">
                     Aucune conversation
                 </div>
             </div>
@@ -536,7 +611,7 @@ onMounted(() => {
             <!-- Bouton instructions en bas fixe -->
             <button
                 @click="showInstructionsModal = true"
-                class="w-full p-2 mt-4 bg-gray-700 text-white rounded hover:bg-gray-600 transition"
+                class="w-full p-2 mt-4 text-white transition bg-gray-700 rounded hover:bg-gray-600"
             >
                 Instructions personnalisées
             </button>
@@ -544,23 +619,23 @@ onMounted(() => {
             <!-- Ajouter un bouton pour gérer les commandes -->
             <button
                 @click="showCommandsModal = true"
-                class="w-full p-2 mt-2 bg-gray-700 text-white rounded hover:bg-gray-600 transition"
+                class="w-full p-2 mt-2 text-white transition bg-gray-700 rounded hover:bg-gray-600"
             >
                 Commandes personnalisées
             </button>
         </aside>
 
         <!-- Zone principale -->
-        <main class="flex-1 flex flex-col h-full">
-            <div class="w-full h-full bg-gray-800 p-6 flex flex-col">
+        <main class="flex flex-col flex-1 h-full">
+            <div class="flex flex-col w-full h-full p-6 bg-gray-800">
                 <!-- Sélecteur de modèle -->
                 <div class="mb-4">
-                    <label class="block font-medium text-gray-200 mb-2"
+                    <label class="block mb-2 font-medium text-gray-200"
                         >Modèle utilisé :</label
                     >
                     <select
                         v-model="form.model"
-                        class="w-full p-2 border rounded bg-gray-700 text-white"
+                        class="w-full p-2 text-white bg-gray-700 border rounded"
                         :disabled="loading"
                     >
                         <option
@@ -573,13 +648,13 @@ onMounted(() => {
                     </select>
                 </div>
 
-                <h1 class="text-2xl font-semibold text-center mb-4">
+                <h1 class="mb-4 text-2xl font-semibold text-center">
                     Que puis-je faire pour vous ?
                 </h1>
 
                 <!-- Messages -->
                 <div
-                    class="chat-container flex-1 bg-gray-700 p-4 rounded-lg overflow-y-auto border mb-4"
+                    class="flex-1 p-4 mb-4 overflow-y-auto bg-gray-700 border rounded-lg chat-container"
                 >
                     <div v-if="messages?.length">
                         <div
@@ -618,7 +693,7 @@ onMounted(() => {
                             </div>
                         </div>
                     </div>
-                    <div v-else class="text-gray-400 text-center py-4">
+                    <div v-else class="py-4 text-center text-gray-400">
                         Commencez une conversation...
                     </div>
                 </div>
@@ -626,7 +701,7 @@ onMounted(() => {
                 <!-- Messages d'erreur -->
                 <div
                     v-if="flashError"
-                    class="mb-4 p-3 bg-red-500 text-white rounded"
+                    class="p-3 mb-4 text-white bg-red-500 rounded"
                 >
                     {{ flashError }}
                 </div>
@@ -636,13 +711,13 @@ onMounted(() => {
                     <input
                         v-model="form.message"
                         type="text"
-                        class="flex-1 p-3 border rounded-lg focus:ring focus:ring-blue-300 bg-gray-700 text-white"
+                        class="flex-1 p-3 text-white bg-gray-700 border rounded-lg focus:ring focus:ring-blue-300"
                         placeholder="Posez votre question..."
                         :disabled="loading || !selectedConversation"
                     />
                     <button
                         type="submit"
-                        class="bg-blue-500 text-white px-6 py-3 rounded-lg hover:bg-blue-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        class="px-6 py-3 text-white transition bg-blue-500 rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
                         :disabled="
                             loading ||
                             !selectedConversation ||
@@ -658,38 +733,38 @@ onMounted(() => {
         <!-- Modal Instructions Personnalisées -->
         <div
             v-if="showInstructionsModal"
-            class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4"
+            class="fixed inset-0 flex items-center justify-center p-4 bg-black bg-opacity-50"
         >
-            <div class="bg-gray-800 rounded-lg p-6 max-w-2xl w-full">
-                <h2 class="text-xl font-bold mb-4">
+            <div class="w-full max-w-2xl p-6 bg-gray-800 rounded-lg">
+                <h2 class="mb-4 text-xl font-bold">
                     Instructions Personnalisées
                 </h2>
 
                 <div class="space-y-4">
                     <div>
-                        <label class="block text-sm font-medium mb-2">
+                        <label class="block mb-2 text-sm font-medium">
                             Que souhaitez-vous que l'IA sache à propos de vous ?
                         </label>
                         <textarea
                             v-model="customInstruction.about_user"
-                            class="w-full h-32 bg-gray-700 rounded p-2"
+                            class="w-full h-32 p-2 bg-gray-700 rounded"
                             placeholder="Ex: Je suis développeur PHP avec 5 ans d'expérience..."
                         ></textarea>
                     </div>
 
                     <div>
-                        <label class="block text-sm font-medium mb-2">
+                        <label class="block mb-2 text-sm font-medium">
                             Comment souhaitez-vous que l'IA vous réponde ?
                         </label>
                         <textarea
                             v-model="customInstruction.preference"
-                            class="w-full h-32 bg-gray-700 rounded p-2"
+                            class="w-full h-32 p-2 bg-gray-700 rounded"
                             placeholder="Ex: Réponses concises avec des exemples de code..."
                         ></textarea>
                     </div>
                 </div>
 
-                <div class="mt-6 flex justify-end space-x-3">
+                <div class="flex justify-end mt-6 space-x-3">
                     <button
                         @click="showInstructionsModal = false"
                         class="px-4 py-2 bg-gray-600 rounded hover:bg-gray-500"
@@ -710,17 +785,17 @@ onMounted(() => {
         <!-- Modal pour les commandes -->
         <div
             v-if="showCommandsModal"
-            class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4"
+            class="fixed inset-0 flex items-center justify-center p-4 bg-black bg-opacity-50"
         >
-            <div class="bg-gray-800 rounded-lg p-6 max-w-2xl w-full">
-                <h2 class="text-xl font-bold mb-4">Commandes Personnalisées</h2>
+            <div class="w-full max-w-2xl p-6 bg-gray-800 rounded-lg">
+                <h2 class="mb-4 text-xl font-bold">Commandes Personnalisées</h2>
 
                 <!-- Liste des commandes existantes -->
                 <div class="mb-6 space-y-4">
                     <div
                         v-for="cmd in commands"
                         :key="cmd.id"
-                        class="bg-gray-700 p-4 rounded"
+                        class="p-4 bg-gray-700 rounded"
                     >
                         <div class="font-bold">{{ cmd.name }}</div>
                         <div class="text-gray-400">{{ cmd.command }}</div>
@@ -731,54 +806,54 @@ onMounted(() => {
                 <!-- Formulaire pour ajouter une nouvelle commande -->
                 <form @submit.prevent="saveCommand" class="space-y-4">
                     <div>
-                        <label class="block text-sm font-medium mb-2"
+                        <label class="block mb-2 text-sm font-medium"
                             >Nom de la commande</label
                         >
                         <input
                             type="text"
                             v-model="newCommand.name"
-                            class="w-full bg-gray-700 rounded p-2"
+                            class="w-full p-2 bg-gray-700 rounded"
                             placeholder="Ex: Météo"
                         />
                     </div>
 
                     <div>
-                        <label class="block text-sm font-medium mb-2"
+                        <label class="block mb-2 text-sm font-medium"
                             >Commande (/)</label
                         >
                         <input
                             type="text"
                             v-model="newCommand.command"
-                            class="w-full bg-gray-700 rounded p-2"
+                            class="w-full p-2 bg-gray-700 rounded"
                             placeholder="Ex: /meteo"
                         />
                     </div>
 
                     <div>
-                        <label class="block text-sm font-medium mb-2"
+                        <label class="block mb-2 text-sm font-medium"
                             >Description</label
                         >
                         <input
                             type="text"
                             v-model="newCommand.description"
-                            class="w-full bg-gray-700 rounded p-2"
+                            class="w-full p-2 bg-gray-700 rounded"
                             placeholder="Ex: Affiche la météo pour une ville"
                         />
                     </div>
 
                     <div>
-                        <label class="block text-sm font-medium mb-2"
+                        <label class="block mb-2 text-sm font-medium"
                             >Prompt</label
                         >
                         <textarea
                             v-model="newCommand.prompt"
-                            class="w-full h-32 bg-gray-700 rounded p-2"
+                            class="w-full h-32 p-2 bg-gray-700 rounded"
                             placeholder="Ex: Donne la météo pour la ville de"
                         ></textarea>
                     </div>
                 </form>
 
-                <div class="mt-6 flex justify-end space-x-3">
+                <div class="flex justify-end mt-6 space-x-3">
                     <button
                         @click="showCommandsModal = false"
                         class="px-4 py-2 bg-gray-600 rounded hover:bg-gray-500"

@@ -184,7 +184,7 @@ class MessageController extends Controller
                 messages: $messages,
                 model: $conversation->model ?? $request->user()->last_used_model ?? \App\Services\ChatService::DEFAULT_MODEL,
                 temperature: 0.7,
-                conversation: $conversation
+                // conversation: $conversation
             );
 
             // 5. Créer le message "assistant" dans la BD (vide pour l'instant)
@@ -207,7 +207,7 @@ class MessageController extends Controller
                     $buffer .= $chunk;
                     $currentTime = microtime(true) * 1000;
                     if ($currentTime - $lastBroadcastTime >= 100) { // Diffuser toutes les 100ms
-                        broadcast(new \App\Events\ChatMessageStreamed(
+                        broadcast(new ChatMessageStreamed(
                             channel: $channelName,
                             content: $buffer,
                             isComplete: false
@@ -234,7 +234,7 @@ class MessageController extends Controller
             ]);
 
             // 10. Diffuser l'événement final signalant la complétion
-            broadcast(new \App\Events\ChatMessageStreamed(
+            broadcast(new ChatMessageStreamed(
                 channel: $channelName,
                 content: $fullResponse,
                 isComplete: true
@@ -242,8 +242,12 @@ class MessageController extends Controller
 
             return response()->json("ok");
         } catch (\Exception $e) {
+            logger()->error('Erreur dans streamMessage:', [
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
             if (isset($conversation)) {
-                broadcast(new \App\Events\ChatMessageStreamed(
+                broadcast(new ChatMessageStreamed(
                     channel: "chat.{$conversation->id}",
                     content: "Erreur: " . $e->getMessage(),
                     isComplete: true,
