@@ -36,6 +36,9 @@ class MessageController extends Controller
      */
     public function streamMessage(Conversation $conversation, Request $request)
     {
+        // Augmenter le timeout PHP
+        set_time_limit(120); // 2 minutes
+
         $request->validate([
             'message' => 'required|string',
             'model'   => 'nullable|string',
@@ -79,8 +82,26 @@ class MessageController extends Controller
             $buffer = '';
             $lastBroadcastTime = microtime(true) * 1000;
 
+            // Envoyer un heartbeat pour maintenir la connexion active
+            while (ob_get_level()) ob_end_clean();
+            header('X-Accel-Buffering: no');
+            header('Content-Type: text/event-stream');
+            header('Cache-Control: no-cache');
+            header('Connection: keep-alive');
+
+            // Envoyer un ping toutes les 5 secondes pour garder la connexion active
+            $lastPingTime = time();
+
             // 7. Itérer sur le flux et diffuser les chunks progressivement
             foreach ($stream as $response) {
+                // Envoyer un ping si nécessaire
+                if (time() - $lastPingTime >= 5) {
+                    echo ":\n\n"; // Commentaire SSE pour maintenir la connexion
+                    ob_flush();
+                    flush();
+                    $lastPingTime = time();
+                }
+
                 $chunk = $response->choices[0]->delta->content ?? '';
                 if ($chunk) {
                     $fullResponse .= $chunk;
@@ -195,6 +216,14 @@ class MessageController extends Controller
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
+
+            // Envoyer une réponse d'erreur avec un code 504 pour le timeout
+            if (str_contains($e->getMessage(), 'timeout')) {
+                return response()->json([
+                    'error' => 'Le délai de réponse a été dépassé',
+                    'code' => 'TIMEOUT'
+                ], 504);
+            }
 
             broadcast(new ChatMessageStreamed(
                 channel: "chat.{$conversation->id}",

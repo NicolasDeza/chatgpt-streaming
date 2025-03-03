@@ -72,8 +72,11 @@ class ChatService
         return \OpenAI::factory()
             ->withApiKey($this->apiKey)
             ->withBaseUri($this->baseUrl)
-            ->make()
-        ;
+            ->withHttpClient(new \GuzzleHttp\Client([
+                'timeout' => 120,
+                'connect_timeout' => 120
+            ]))
+            ->make();
     }
 
     /**

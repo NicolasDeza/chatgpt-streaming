@@ -144,7 +144,7 @@ const updateConversationTitle = async (conversation) => {
 };
 
 // Gestion des messages
-const sendMessage = async () => {
+const sendMessage = async (isRetry = false) => {
     if (
         !form.message.trim() ||
         !selectedConversation.value?.id ||
@@ -171,25 +171,47 @@ const sendMessage = async () => {
 
         console.log("Message traité:", processedMessage);
 
-        await axios.post(
+        const response = await axios.post(
             route("messages.stream", selectedConversation.value.id),
             {
                 message: processedMessage,
                 model: form.model,
+            },
+            {
+                timeout: 120000, // 2 minutes
+                timeoutErrorMessage:
+                    "Le délai de réponse a été dépassé. Veuillez réessayer.",
             }
         );
 
         form.reset("message");
         await scrollToBottom();
     } catch (error) {
-        // ...gestion d'erreur existante...
         console.error("Erreur lors de l'envoi du message:", error);
+
+        // Supprimer le message "L'IA réfléchit..." en cas d'erreur
         messages.value = messages.value.filter(
             (msg) =>
                 msg.content !== "L'IA réfléchit..." &&
                 msg.content !== tempMessage
         );
-        flashError.value = "Une erreur est survenue lors de l'envoi du message";
+
+        // Message d'erreur personnalisé pour le timeout
+        if (
+            error.code === "ECONNABORTED" ||
+            error.response?.data?.code === "TIMEOUT"
+        ) {
+            flashError.value =
+                "Le délai de réponse a été dépassé. Veuillez réessayer.";
+        } else {
+            flashError.value =
+                "Une erreur est survenue lors de l'envoi du message";
+        }
+
+        // Réessayer automatiquement une fois en cas de timeout
+        if (error.code === "ECONNABORTED" && !isRetry) {
+            await sendMessage(true);
+        }
     } finally {
         loading.value = false;
     }
