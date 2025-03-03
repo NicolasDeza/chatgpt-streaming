@@ -47,6 +47,7 @@ Route::middleware([
     Route::get('/chat', [ConversationController::class, 'index'])->name('chat.index'); // Liste des conversations
     Route::post('/chat', [ConversationController::class, 'store'])->name('chat.store'); // Créer une conversation
     Route::post('/conversations/{conversation}/update-title', [ConversationController::class, 'updateTitle'])->name('chat.updateTitle');
+    Route::post('/conversation/{conversation}/generate-title', [ConversationController::class, 'generateTitle'])->name('conversation.generateTitle');
     Route::get('/chat/{conversation}', [ConversationController::class, 'show'])->name('chat.show'); // Voir une conversation
 
     // ===========================
@@ -76,6 +77,3 @@ Route::middleware([
 
 });
 
-Route::get('/chat', function () {
-    return Inertia::render('ChatWindow'); // Recherche "./Pages/ChatWindow.vue"
-});

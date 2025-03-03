@@ -179,33 +179,6 @@ const sendMessage = async () => {
             }
         );
 
-        // if (response.data.messages) {
-        //     messages.value = response.data.messages;
-        // }
-
-        // // Mise à jour de la conversation (avec le titre généré) dans la liste et la sélection
-        // if (response.data.conversation) {
-        //     const updatedConversation = response.data.conversation;
-        //     const index = conversations.value.findIndex(
-        //         (c) => c.id === updatedConversation.id
-        //     );
-        //     if (index !== -1) {
-        //         conversations.value[index] = updatedConversation;
-        //     }
-        //     if (selectedConversation.value?.id === updatedConversation.id) {
-        //         selectedConversation.value = updatedConversation;
-        //     }
-        //     // Optionnel : réordonner les conversations par date d'activité
-        //     conversations.value.sort(
-        //         (a, b) => new Date(b.last_activity) - new Date(a.last_activity)
-        //     );
-        // }
-
-        // // Mise à jour de toute la liste des conversations
-        // if (response.data.conversations) {
-        //     conversations.value = response.data.conversations;
-        // }
-
         form.reset("message");
         await scrollToBottom();
     } catch (error) {
@@ -272,15 +245,6 @@ const saveInstructions = async () => {
         loading.value = false;
     }
 };
-
-// Observers
-// watch(
-//     messages,
-//     () => {
-//         scrollToBottom();
-//     },
-//     { deep: true }
-// );
 
 watch(selectedModel, (newModel) => {
     if (newModel) {
@@ -367,76 +331,6 @@ const processMessage = async (message) => {
     return message;
 };
 
-// Charger les commandes au montage du composant
-// onMounted(() => {
-//     loadCommands();
-// });
-
-// Ajout de la souscription pour le streaming
-// onMounted(() => {
-//     console.log(currentConversationId.value);
-//     if (page.props.conversation && page.props.conversation.id) {
-//         const channel = `chat.${page.props.conversation.id}`;
-//         console.log("🔌 Tentative de connexion au canal:", channel);
-
-//         const subscription = window.Echo.private(channel)
-//             .subscribed(() => {
-//                 console.log("✅ Connecté avec succès au canal:", channel);
-//             })
-//             .error((error) => {
-//                 console.error("❌ Erreur de connexion au canal:", error);
-//             })
-//             .listen(".message.streamed", (event) => {
-//                 console.log("📨 Message reçu:", event);
-
-//                 const lastMessage =
-//                     localMessages.value[localMessages.value.length - 1];
-
-//                 // Vérifier qu'on ait bien un message assistant en cours
-//                 if (!lastMessage || lastMessage.role !== "assistant") {
-//                     console.log(
-//                         "⚠️ Aucun message assistant ciblé pour concaténer"
-//                     );
-//                     return;
-//                 }
-
-//                 // Gestion d'erreur éventuelle
-//                 if (event.error) {
-//                     console.error("❌ Erreur reçue:", event.error);
-//                     localMessages.value.pop();
-//                     usePage().props.flash.error = event.content;
-//                     return;
-//                 }
-
-//                 // Dès qu’on reçoit le premier chunk, on peut désactiver un éventuel spinner
-//                 if (lastMessage.isLoading && event.content) {
-//                     console.log("🔄 Premier chunk reçu, on enlève le loading");
-//                     lastMessage.isLoading = false;
-//                 }
-
-//                 // Ajouter le chunk reçu
-//                 if (!event.isComplete) {
-//                     lastMessage.content += event.content;
-//                     nextTick(() => {
-//                         // ...fonction scrollToBottom existante...
-//                     });
-//                 }
-
-//                 // Si c’est la fin, déclencher des actions (comme l’update du titre)
-//                 if (event.isComplete) {
-//                     console.log("✅ Message complet reçu");
-//                     if (localMessages.value.length === 2) {
-//                         sidebarRef.value?.updateTitle(
-//                             page.props.conversation.id
-//                         );
-//                     }
-//                 }
-//             });
-
-//         channelSubscription.value = subscription;
-//     }
-// });
-
 import Pusher from "pusher-js";
 
 window.Pusher = Pusher;
@@ -474,47 +368,35 @@ const setupChatSubscription = (conversationId) => {
             );
         })
         .listen(".message.streamed", (event) => {
+            // Gestion du streaming du titre
+            if (event.isTitle) {
+                console.log("Réception du titre:", event.content);
+                const index = conversations.value.findIndex(
+                    (c) => c.id === currentConversationId.value
+                );
+                if (index !== -1) {
+                    conversations.value[index].title = event.content;
+                    // Forcer la réactivité
+                    conversations.value = [...conversations.value];
+                }
+                return;
+            }
+
+            // Gestion normale des messages
             const lastMessage = messages.value[messages.value.length - 1];
-            console.log("Dernier message:", lastMessage);
-            // Vérifier qu'on ait bien un message assistant en cours
             if (!lastMessage || lastMessage.role !== "assistant") {
                 console.log("⚠️ Aucun message assistant ciblé pour concaténer");
                 return;
             }
 
-            // Gestion d'erreur éventuelle
-            if (event.error) {
-                console.error(
-                    "❌ Erreur reçue (Seb va pas être content xD):",
-                    event.error
-                );
-                messages.value.pop();
-                usePage().props.flash.error = event.content;
-                return;
-            }
-
-            // Dès qu’on reçoit le premier chunk, on peut désactiver un éventuel spinner
             if (lastMessage.isLoading && event.content) {
-                console.log("🔄 Premier chunk reçu, on enlève le loading");
                 lastMessage.isLoading = false;
                 lastMessage.content = "";
             }
 
-            // Ajouter le chunk reçu
             if (!event.isComplete) {
                 lastMessage.content += event.content;
-                nextTick(() => {
-                    scrollToBottom();
-                    // ...fonction scrollToBottom existante...
-                });
-            }
-
-            // Si c’est la fin, déclencher des actions (comme l’update du titre)
-            if (event.isComplete) {
-                console.log("✅ Message complet reçu");
-                // if (localMessages.value.length === 2) {
-                //     sidebarRef.value?.updateTitle(page.props.conversation.id);
-                // }
+                nextTick(() => scrollToBottom());
             }
         });
 };

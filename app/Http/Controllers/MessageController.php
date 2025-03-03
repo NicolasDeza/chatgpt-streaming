@@ -20,7 +20,7 @@ class MessageController extends Controller
     }
 
     /**
-     * Display a listing of the resource.
+     * Récupérer les messages d'une conversation
      */
     public function index($conversationId)
     {
@@ -32,126 +32,8 @@ class MessageController extends Controller
     }
 
     /**
-     * Show the form for creating a new resource.
+     * Méthode principale pour le streaming des messages
      */
-    public function create()
-    {
-        //
-    }
-
-    /**
-     * Store a newly created resource in storage.
-     */
-    public function store(Request $request, $conversationId)
-    {
-        $conversation = Conversation::findOrFail($conversationId);
-
-        // Récupérer les instructions personnalisées
-        $customInstruction = CustomInstruction::where('user_id', auth()->id())
-            ->where('is_active', true)
-            ->first();
-
-        // Sauvegarder le message utilisateur
-        Message::create([
-            'conversation_id' => $conversationId,
-            'role' => 'user',
-            'content' => $request->message
-        ]);
-
-        // Préparer le fil des messages avec les instructions système
-        $messages = [];
-
-        // Ajouter les instructions personnalisées si elles existent
-        if ($customInstruction) {
-            $systemMessage = "Instructions de l'utilisateur:\n";
-            if ($customInstruction->about_user) {
-                $systemMessage .= "À propos de l'utilisateur: " . $customInstruction->about_user . "\n";
-            }
-            if ($customInstruction->preference) {
-                $systemMessage .= "Préférences de réponse: " . $customInstruction->preference;
-            }
-
-            $messages[] = [
-                'role' => 'system',
-                'content' => $systemMessage
-            ];
-        }
-
-        // Ajouter l'historique des messages
-        $messages = array_merge(
-            $messages,
-            $conversation->messages()
-                ->orderBy('created_at', 'asc')
-                ->get()
-                ->map(fn($msg) => ['role' => $msg->role, 'content' => $msg->content])
-                ->toArray()
-        );
-
-        // Remplacez l'appel à sendMessage par une agrégation du flux de streamConversation
-        $stream = $this->chatService->streamConversation(
-            messages: $messages,
-            model: $request->model ?? $conversation->model
-        );
-        $aiResponse = '';
-        foreach ($stream as $response) {
-            $chunk = $response->choices[0]->delta->content ?? '';
-            $aiResponse .= $chunk;
-        }
-
-        // Sauvegarder la réponse
-        Message::create([
-            'conversation_id' => $conversationId,
-            'role' => 'assistant',
-            'content' => $aiResponse
-        ]);
-
-        // Génération automatique du titre dès la première réponse
-        if ($conversation->messages()->count() <= 2) {
-            $titlePrompt = "Génère un titre court et concis (maximum 5 mots) pour une conversation qui commence par ce message, sans guillemets ni ponctuation : " . $request->message;
-            try {
-                $stream = (new ChatService())->streamConversation(
-                    messages: [['role' => 'user', 'content' => $titlePrompt]],
-                    model: $request->model ?? $conversation->model
-                );
-                $title = '';
-                foreach ($stream as $response) {
-                    $chunk = $response->choices[0]->delta->content ?? '';
-                    $title .= $chunk;
-                }
-            } catch (\Exception $e) {
-                // Fallback si la génération de titre automatique échoue
-                $title = "Conversation";
-            }
-            $title = trim(str_replace(['"', "'", '.', '!', '?'], '', $title));
-            $conversation->update([
-                'title' => $title,
-                'last_activity' => now()
-            ]);
-        } else {
-            $conversation->update(['last_activity' => now()]);
-        }
-
-        // Recharger la conversation avec ses relations pour refléter le nouveau titre
-        $conversation = $conversation->fresh();
-
-        // Mettre à jour last_activity avec la date actuelle
-        $conversation->update([
-            'last_activity' => now(),
-        ]);
-
-        // Récupérer toutes les conversations triées par last_activity
-        $conversations = Conversation::where('user_id', auth()->id())
-            ->orderBy('last_activity', 'desc')
-            ->get();
-
-        return response()->json([
-            'messages' => $conversation->messages()->orderBy('created_at', 'asc')->get(),
-            'conversation' => $conversation,
-            'conversations' => $conversations
-        ]);
-    }
-
-    // Ajout de la méthode streamMessage pour le streaming
     public function streamMessage(Conversation $conversation, Request $request)
     {
         $request->validate([
@@ -179,12 +61,11 @@ class MessageController extends Controller
                 ])
                 ->toArray();
 
-            // 4. Obtenir le flux depuis le ChatService en utilisant la version complète (avec prompt système et formatage)
-            $stream = (new ChatService())->streamConversation(
+            // 4. Obtenir le flux depuis le ChatService
+            $stream = $this->chatService->streamConversation(
                 messages: $messages,
-                model: $conversation->model ?? $request->user()->last_used_model ?? \App\Services\ChatService::DEFAULT_MODEL,
-                temperature: 0.7,
-                // conversation: $conversation
+                model: $conversation->model ?? $request->user()->last_used_model ?? ChatService::DEFAULT_MODEL,
+                temperature: 0.7
             );
 
             // 5. Créer le message "assistant" dans la BD (vide pour l'instant)
@@ -196,17 +77,16 @@ class MessageController extends Controller
             // 6. Variables pour accumuler la réponse
             $fullResponse = '';
             $buffer = '';
-            $lastBroadcastTime = microtime(true) * 1000; // en ms
+            $lastBroadcastTime = microtime(true) * 1000;
 
             // 7. Itérer sur le flux et diffuser les chunks progressivement
             foreach ($stream as $response) {
                 $chunk = $response->choices[0]->delta->content ?? '';
                 if ($chunk) {
-                    \Log::info('Chunk reçu', ['chunk' => $chunk]);
                     $fullResponse .= $chunk;
                     $buffer .= $chunk;
                     $currentTime = microtime(true) * 1000;
-                    if ($currentTime - $lastBroadcastTime >= 100) { // Diffuser toutes les 100ms
+                    if ($currentTime - $lastBroadcastTime >= 100) {
                         broadcast(new ChatMessageStreamed(
                             channel: $channelName,
                             content: $buffer,
@@ -215,13 +95,13 @@ class MessageController extends Controller
                         $buffer = '';
                         $lastBroadcastTime = $currentTime;
                     }
-                    usleep(100000); // 100ms de pause
+                    usleep(100000);
                 }
             }
 
-            // 8. Diffuser le buffer restant s'il y en a
+            // 8. Diffuser le buffer restant
             if (!empty($buffer)) {
-                broadcast(new \App\Events\ChatMessageStreamed(
+                broadcast(new ChatMessageStreamed(
                     channel: $channelName,
                     content: $buffer,
                     isComplete: false
@@ -233,27 +113,96 @@ class MessageController extends Controller
                 'content' => $fullResponse
             ]);
 
-            // 10. Diffuser l'événement final signalant la complétion
+            // 10. Diffuser l'événement final
             broadcast(new ChatMessageStreamed(
                 channel: $channelName,
                 content: $fullResponse,
                 isComplete: true
             ));
 
-            return response()->json("ok");
-        } catch (\Exception $e) {
-            logger()->error('Erreur dans streamMessage:', [
-                'message' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-            ]);
-            if (isset($conversation)) {
-                broadcast(new ChatMessageStreamed(
-                    channel: "chat.{$conversation->id}",
-                    content: "Erreur: " . $e->getMessage(),
-                    isComplete: true,
-                    error: true
-                ));
+            // 11. Gestion intelligente du titre
+            $shouldGenerateTitle = $conversation->title === 'Nouvelle conversation' ||
+                ($conversation->messages()->count() % 7 === 0); // Régénérer tous les 7 messages
+
+            if ($shouldGenerateTitle) {
+                try {
+                    // Utiliser les derniers messages comme contexte pour un titre plus pertinent
+                    $contextMessages = $conversation->messages()
+                        ->orderBy('created_at', 'desc')
+                        ->take(7)  // Augmenté à 7 messages pour plus de contexte
+                        ->get()
+                        ->map(fn($msg) => $msg->content)
+                        ->reverse()  // Important : remettre dans l'ordre chronologique
+                        ->join("\n");
+
+                    $titleStream = $this->chatService->generateTitle($contextMessages);
+                    $titleContent = '';
+
+                    // Stream le titre en temps réel
+                    foreach ($titleStream as $response) {
+                        $chunk = $response->choices[0]->delta->content ?? '';
+                        if ($chunk) {
+                            $titleContent .= $chunk;
+                            // Diffuser chaque morceau du titre en temps réel
+                            broadcast(new ChatMessageStreamed(
+                                channel: $channelName,
+                                content: $titleContent,
+                                isComplete: false,
+                                error: false,
+                                isTitle: true
+                            ));
+                        }
+                    }
+
+                    // Nettoyer et sauvegarder le titre final
+                    $titleContent = trim(str_replace(['"', "'", '.', '!', '?'], '', $titleContent));
+                    if (!empty($titleContent)) {
+                        $conversation->update([
+                            'title' => $titleContent,
+                            'last_activity' => now()
+                        ]);
+
+                        logger()->info('Titre généré avec succès', [
+                            'conversation_id' => $conversation->id,
+                            'title' => $titleContent,
+                            'messages_count' => $conversation->messages()->count()
+                        ]);
+
+                        // Diffuser la version finale du titre
+                        broadcast(new ChatMessageStreamed(
+                            channel: $channelName,
+                            content: $titleContent,
+                            isComplete: true,
+                            error: false,
+                            isTitle: true
+                        ));
+                    }
+                } catch (\Exception $e) {
+                    logger()->error('Erreur génération titre:', [
+                        'error' => $e->getMessage(),
+                        'conversation_id' => $conversation->id
+                    ]);
+                    $conversation->update(['last_activity' => now()]);
+                }
+            } else {
+                $conversation->update(['last_activity' => now()]);
             }
+
+            return response()->json('ok');
+
+        } catch (\Exception $e) {
+            logger()->error('Erreur streamMessage:', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            broadcast(new ChatMessageStreamed(
+                channel: "chat.{$conversation->id}",
+                content: "Erreur: " . $e->getMessage(),
+                isComplete: true,
+                error: true
+            ));
+
             return response()->json(['error' => $e->getMessage()], 500);
         }
     }

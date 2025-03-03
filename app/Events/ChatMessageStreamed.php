@@ -17,7 +17,8 @@ class ChatMessageStreamed implements ShouldBroadcastNow
         protected string $channel,
         protected string $content,
         protected bool $isComplete = false,
-        protected bool $error = false
+        protected bool $error = false,
+        protected bool $isTitle = false  // Ajout du paramètre isTitle
     ) {}
 
     public function broadcastOn(): array
@@ -38,6 +39,7 @@ class ChatMessageStreamed implements ShouldBroadcastNow
             'content'    => $this->content,
             'isComplete' => $this->isComplete,
             'error'      => $this->error,
+            'isTitle'    => $this->isTitle,  // Ajout dans le payload
         ];
     }
 }

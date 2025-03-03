@@ -163,15 +163,15 @@ class ChatService
         }
     }
 
-    // Supprimez ou commentez la méthode sendMessage
-    // public function sendMessage(array $messages, ?string $model = null, float $temperature = 0.7): string
-    // {
-    //     $stream = $this->streamConversation($messages, $model, $temperature);
-    //     $fullResponse = '';
-    //     foreach ($stream as $response) {
-    //         $chunk = $response->choices[0]->delta->content ?? '';
-    //         $fullResponse .= $chunk;
-    //     }
-    //     return $fullResponse;
-    // }
+    public function generateTitle(string $messages): mixed
+    {
+        return $this->streamConversation(
+            messages: [[
+                'role' => 'user',
+                'content' => "Je souhaite que tu génères un titre court et percutant, contenant au maximum 4 mots, qui résume avec précision l’échange suivant :\n\n$messages\n\nLe titre doit être concis et direct, sans phrase complète ni texte additionnel. Si l’échange est incohérent, illisible ou trop bref pour être résumé, ta seule réponse doit être : 'Demande de clarification'. Aucune autre information ne doit être ajoutée, même si cela semble pertinent. Si la conversation est trop complexe ou trop longue, réponds simplement 'Résumé de la discussion'."
+            ]],
+            model: self::DEFAULT_MODEL
+        );
+    }
+
 }
