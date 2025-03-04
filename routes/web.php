@@ -76,4 +76,3 @@ Route::middleware([
     Route::post('/custom-commands', [CustomCommandController::class, 'store'])->name('custom-commands.store');
 
 });
-

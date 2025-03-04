@@ -82,12 +82,19 @@ class MessageController extends Controller
             $buffer = '';
             $lastBroadcastTime = microtime(true) * 1000;
 
-            // Envoyer un heartbeat pour maintenir la connexion active
-            while (ob_get_level()) ob_end_clean();
-            header('X-Accel-Buffering: no');
+            // Nettoyer tous les buffers existants et désactiver le buffering
+            while (ob_get_level() > 0) {
+                ob_end_clean();
+            }
+
+            // Configuration des headers
             header('Content-Type: text/event-stream');
             header('Cache-Control: no-cache');
+            header('X-Accel-Buffering: no');
             header('Connection: keep-alive');
+
+            // Forcer PHP à envoyer les headers maintenant
+            flush();
 
             // Envoyer un ping toutes les 5 secondes pour garder la connexion active
             $lastPingTime = time();
@@ -97,7 +104,8 @@ class MessageController extends Controller
                 // Envoyer un ping si nécessaire
                 if (time() - $lastPingTime >= 5) {
                     echo ":\n\n"; // Commentaire SSE pour maintenir la connexion
-                    ob_flush();
+                    // On vérifie et on ignore l'erreur si aucun buffer n'est actif
+                    if (ob_get_level() > 0) { @ob_flush(); }
                     flush();
                     $lastPingTime = time();
                 }
@@ -107,14 +115,25 @@ class MessageController extends Controller
                     $fullResponse .= $chunk;
                     $buffer .= $chunk;
                     $currentTime = microtime(true) * 1000;
+
                     if ($currentTime - $lastBroadcastTime >= 100) {
                         broadcast(new ChatMessageStreamed(
                             channel: $channelName,
                             content: $buffer,
                             isComplete: false
                         ));
+
+                        // Vider le buffer après chaque broadcast
                         $buffer = '';
                         $lastBroadcastTime = $currentTime;
+
+                        // Forcer l'envoi des données
+                        if (connection_status() !== CONNECTION_NORMAL) {
+                            break;
+                        }
+                        echo "data: " . json_encode(['status' => 'streaming']) . "\n\n";
+                        if (ob_get_level() > 0) { @ob_flush(); }
+                        flush();
                     }
                     usleep(100000);
                 }
