@@ -31,9 +31,9 @@ const flashMessage = ref("");
 const flashError = ref("");
 
 // Debug logs
-console.log("Models:", toRaw(models.value));
-console.log("Conversations:", toRaw(conversations.value));
-console.log("Messages:", toRaw(messages.value));
+// console.log("Models:", toRaw(models.value));
+//console.log("Conversations:", toRaw(conversations.value));
+//console.log("Messages:", toRaw(messages.value));
 
 // Initialisation de Markdown
 const md = new MarkdownIt({
@@ -152,7 +152,7 @@ const sendMessage = async (isRetry = false) => {
     )
         return;
 
-    console.log("Envoi du message:", form.message);
+    // console.log("Envoi du message:", form.message);
 
     const tempMessage = form.message.trim();
     try {
@@ -169,7 +169,7 @@ const sendMessage = async (isRetry = false) => {
 
         const processedMessage = await processMessage(tempMessage);
 
-        console.log("Message traité:", processedMessage);
+        // console.log("Message traité:", processedMessage);
 
         const response = await axios.post(
             route("messages.stream", selectedConversation.value.id),
@@ -364,14 +364,14 @@ const setupChatSubscription = (conversationId) => {
     if (!conversationId) return;
 
     const channelName = `chat.${conversationId}`;
-    console.log("Tentative d'abonnement au canal :", channelName);
+    // console.log("Tentative d'abonnement au canal :", channelName);
 
     // Leave previous channel if it exists
     if (currentChannel.value) {
-        console.log(
-            "👋 Désinscription du canal précédent:",
-            currentChannel.value
-        );
+        // console.log(
+        //     "👋 Désinscription du canal précédent:",
+        //     currentChannel.value
+        // );
         window.Echo.leave(currentChannel.value);
     }
 
@@ -380,7 +380,7 @@ const setupChatSubscription = (conversationId) => {
 
     window.Echo.private(channelName)
         .subscribed(() => {
-            console.log("✅ Abonné au canal", channelName);
+            // console.log("✅ Abonné au canal", channelName);
         })
         .error((error) => {
             console.error(
@@ -392,7 +392,7 @@ const setupChatSubscription = (conversationId) => {
         .listen(".message.streamed", (event) => {
             // Gestion du streaming du titre
             if (event.isTitle) {
-                console.log("Réception du titre:", event.content);
+                // console.log("Réception du titre:", event.content);
                 const index = conversations.value.findIndex(
                     (c) => c.id === currentConversationId.value
                 );
@@ -407,7 +407,7 @@ const setupChatSubscription = (conversationId) => {
             // Gestion normale des messages
             const lastMessage = messages.value[messages.value.length - 1];
             if (!lastMessage || lastMessage.role !== "assistant") {
-                console.log("⚠️ Aucun message assistant ciblé pour concaténer");
+                // console.log("⚠️ Aucun message assistant ciblé pour concaténer");
                 return;
             }
 
